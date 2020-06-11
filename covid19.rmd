@@ -1,0 +1,932 @@
+---
+title: "Antone Evans Jr. and Abilash Vanam"
+subtitle: "Predicting the Survival Rate of COVID-19 Patients"
+output: html_notebook
+---
+
+
+<h1>1.Data Exploration</h1>
+<h5>
+a. str()
+b. summary()
+</h5>
+```{r}
+covid19 <- read.csv("covid19.csv")
+str(covid19)
+summary(covid19)
+```
+<h5>c. Percentage of NAs in columns</h5>
+Case_in_country : NA’s 18%
+Reporting.date : NA’s 0%
+X : NA’s 100%
+Summary : NA’s 0.46%
+Gender : NA’s 16%
+Age : NA’s 22%
+Symptom_onset : NA’s 48%
+If_onset_approximated : NA’s 48%
+Hosp_visit_date : NA’s 53%
+Exposure_start : NA’s 88%
+exposure_end : NA’s 69%
+from.Wuhan : NA’s 0.36%
+```{r}
+colMeans(is.na(covid19))
+```
+
+The dataset has 1085 observation of 21 variables.
+Lets see the names of all the 21 variables.
+
+```{r}
+names(covid19)
+```
+From these 21 variables, we will remove some of the variables which are not required for the prediction of the target variable.
+
+
+<h1>2. Data Preprocessing</h1>
+<h5>a. Remove case_in_country,summary, X, location, exposure_start, exposure_end, link and source</h5> 
+```{r}
+covid19 = covid19[-21]
+covid19 = covid19[-20]
+covid19 = covid19[-14]
+covid19 = covid19[-13]
+covid19 = covid19[-6]
+covid19 = covid19[-5]
+covid19 = covid19[-4]
+covid19 = covid19[-2]
+```
+
+```{r}
+str(covid19)
+```
+Now, we have 1085 observations and 13 variables.
+
+<h5>b. Convert the sympton_onset, hosp_visit_date and reporting.date to Date columns. We will then find out the length of a symptom before reporting and the length of a hospital visit before reporting to the patient that they were COVID-19 positive. </h5>
+
+```{r}
+covid19$symptom_onset <- as.Date(covid19$symptom_onset, format = "%m/%d/%Y")
+covid19$hosp_visit_date <- as.Date(covid19$hosp_visit_date, format = "%m/%d/%Y")
+covid19$reporting.date <- as.Date(covid19$reporting.date, format = "%m/%d/%Y")
+```
+
+```{r}
+covid19$symptomLength <- covid19$reporting.date - covid19$symptom_onset
+covid19$reportingLength <- covid19$reporting.date - covid19$hosp_visit_date
+covid19$symptomLength <- as.numeric(covid19$symptomLength)
+covid19$reportingLength <- as.numeric(covid19$reportingLength)
+```
+
+```{r}
+covid19 = covid19[-8]
+covid19 = covid19[-6]
+covid19 = covid19[-2]
+```
+
+
+<h5>c. If_onset_approzimated means if these patients contact with someone who has COVID-19. We will change all NAs to 0 assuming those patients weren’t. </h5>
+```{r}
+covid19$If_onset_approximated[is.na(covid19$If_onset_approximated)] <- 0
+covid19$If_onset_approximated <- as.integer(covid19$If_onset_approximated)
+```
+
+<h5>d. Change death and recovered to binary variables </h5>
+```{r}
+covid19$death <- ifelse(covid19$death == 0, 0, 1)
+covid19$recovered <- ifelse(covid19$recovered == 0, 0, 1)
+
+covid19$death <- as.integer(covid19$death)
+covid19$recovered <- as.integer(covid19$recovered)
+```
+
+<h5>e. Impute the age variable (as done in assignment 5) using the missforest method</h5>
+We have to move variables with more than 53 variables caterogical levels.
+We removed symptom.
+
+```{r}
+names(covid19)
+```
+
+
+```{r}
+covid19DF = covid19
+covid19DF = covid19DF[-10]
+covid19DF = covid19DF[-8]
+```
+
+
+reporting.date (1), gender (183), age (242),  from.Wuhan (4)  symptomLength 522 and reportingLength 579 all have NAs
+```{r}
+summary(covid19)
+```
+
+
+```{r}
+library(missForest)
+covid19.imp <- missForest(covid19DF)
+covid19.imp$ximp
+covid19.imp$OOBerror
+```
+
+Adding back to features that were removed before missForesting
+```{r}
+covid19.imp$ximp$age <- as.integer(covid19.imp$ximp$age)
+covid19.imp$ximp$from.Wuhan <- as.integer(covid19.imp$ximp$from.Wuhan)
+
+symptom = covid19$symptom
+death = covid19$death
+
+NEWcovid19 = cbind(covid19.imp$ximp,symptom)
+NEWcovid19 = cbind(NEWcovid19,death)
+summary(NEWcovid19)
+```
+
+<h5>f. Create a separate binary variable for each symptom appearing in the "symptom" column.</h5>
+```{r}
+NEWcovid19$symptom[NEWcovid19$symptom==""] <- NA
+levels <- levels(NEWcovid19$symptom)
+levels[length(levels) + 1] <- "none"
+NEWcovid19$symptom <- factor(NEWcovid19$symptom, levels = levels)
+NEWcovid19$symptom[is.na(NEWcovid19$symptom)] <- "none"
+```
+
+```{r}
+NEWcovid19$symptom <- gsub("chill", "chills", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("cough", "coughing", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("difficult in breathing", "difficulty breathing", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("feaver", "fever", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("feve\\\\", "fever", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("flu", "flu symptoms", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("myalgias", "myalgia", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("shortness of breath", "dyspnea", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("breathlessness", "dyspnea", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("aching muscles", "muscle aches", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("muscle aches", "myalgia", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("muscle pain", "myalgia", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("sore body", "myalgia", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("chest pain", "chest discomfort", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("runny nose", "nasal discharge", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("coughing with sputum", "sputum", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("tired", "fatigue", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("high fever", "fever", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("mild fever", "fever", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("mild coughing", "coughing", NEWcovid19$symptom)
+```
+
+```{r}
+NEWcovid19$symptom <- gsub("chillss", "chills", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("coughinging", "coughing", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("fever", "fever (mild to sever)", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("coughing", "coughing (mild to sever)", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("flu symptoms symptoms", "flu symptoms", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("reflu symptomsx", "reflux", NEWcovid19$symptom)
+NEWcovid19$symptom <- gsub("heavy head", "headache", NEWcovid19$symptom)
+```
+
+```{r}
+length(unique(unlist(strsplit(as.character(NEWcovid19$symptom),', '))))
+unique(unlist(strsplit(as.character(NEWcovid19$symptom),', ')))
+```
+
+```{r}
+spl_letters = strsplit(as.character(NEWcovid19[["symptom"]]), ", ", fixed = TRUE)
+uniq = unique(unlist(spl_letters), use.names = FALSE)
+
+c19 <- data.frame(NEWcovid19,
+           setNames(data.frame(t(vapply(spl_letters, function(x) +(uniq %in% x), seq_along(uniq)))), paste0("Symptom_", uniq))
+)
+```
+
+Removing the symptom variable.
+```{r}
+c19 <- c19[-11]
+c19 <- c19[-1]
+```
+
+Lookup the data.
+```{r}
+summary(c19)
+```
+
+<h1>3. Further Data Exploration</h1>
+Converting the death column into caterogical form from binary. 
+```{r}
+survivalORnot = ifelse(c19$death == 1, "death", "survival")
+c19exploreData = cbind(survivalORnot, c19)
+c19exploreData = c19exploreData[-11]
+c19exploreData$If_onset_approximated = ifelse(c19exploreData$If_onset_approximated == 1, "yes", "no")
+c19exploreData$visiting.Wuhan = ifelse(c19exploreData$visiting.Wuhan == 1, "yes", "no")
+c19exploreData$from.Wuhan = ifelse(c19exploreData$from.Wuhan == 1, "yes", "no")
+c19exploreData$recovered = ifelse(c19exploreData$recovered == 1, "yes", "no")
+c19exploreData$Symptom_none = ifelse(c19exploreData$Symptom_none == 1, "yes", "no")
+c19exploreData$Symptom_fever..mild.to.sever. = ifelse(c19exploreData$Symptom_fever..mild.to.sever. == 1, "yes", "no")
+c19exploreData$Symptom_coughing..mild.to.sever. = ifelse(c19exploreData$Symptom_coughing..mild.to.sever. == 1, "yes", "no")
+c19exploreData$Symptom_difficulty.breathing = ifelse(c19exploreData$Symptom_difficulty.breathing == 1, "yes", "no")
+c19exploreData$Symptom_chills = ifelse(c19exploreData$Symptom_chills == 1, "yes", "no")
+c19exploreData$Symptom_joint.pain = ifelse(c19exploreData$Symptom_joint.pain == 1, "yes", "no")
+c19exploreData$Symptom_throat.pain = ifelse(c19exploreData$Symptom_throat.pain == 1, "yes", "no")
+c19exploreData$Symptom_nasal.discharge = ifelse(c19exploreData$Symptom_nasal.discharge == 1, "yes", "no")
+c19exploreData$Symptom_fatigue = ifelse(c19exploreData$Symptom_fatigue == 1, "yes", "no")
+c19exploreData$Symptom_abdominal.pain = ifelse(c19exploreData$Symptom_abdominal.pain == 1, "yes", "no")
+c19exploreData$Symptom_diarrhea = ifelse(c19exploreData$Symptom_diarrhea == 1, "yes", "no")
+c19exploreData$Symptom_cold = ifelse(c19exploreData$Symptom_cold == 1, "yes", "no")
+c19exploreData$Symptom_pneumonia = ifelse(c19exploreData$Symptom_pneumonia == 1, "yes", "no")
+c19exploreData$Symptom_vomiting = ifelse(c19exploreData$Symptom_vomiting == 1, "yes", "no")
+c19exploreData$Symptom_loss.of.appetite = ifelse(c19exploreData$Symptom_loss.of.appetite == 1, "yes", "no")
+c19exploreData$Symptom_malaise = ifelse(c19exploreData$Symptom_malaise == 1, "yes", "no")
+c19exploreData$Symptom_headache = ifelse(c19exploreData$Symptom_headache == 1, "yes", "no")
+c19exploreData$Symptom_sputum = ifelse(c19exploreData$Symptom_sputum == 1, "yes", "no")
+c19exploreData$Symptom_myalgia = ifelse(c19exploreData$Symptom_myalgia == 1, "yes", "no")
+c19exploreData$Symptom_sore.throat = ifelse(c19exploreData$Symptom_sore.throat == 1, "yes", "no")
+c19exploreData$Symptom_dyspnea = ifelse(c19exploreData$Symptom_dyspnea == 1, "yes", "no")
+c19exploreData$Symptom_nausea = ifelse(c19exploreData$Symptom_nausea == 1, "yes", "no")
+c19exploreData$Symptom_respiratory.distress = ifelse(c19exploreData$Symptom_respiratory.distress == 1, "yes", "no")
+c19exploreData$Symptom_throat.discomfort = ifelse(c19exploreData$Symptom_throat.discomfort == 1, "yes", "no")
+c19exploreData$Symptom_thirst = ifelse(c19exploreData$Symptom_thirst == 1, "yes", "no")
+c19exploreData$Symptom_sneeze = ifelse(c19exploreData$Symptom_sneeze == 1, "yes", "no")
+c19exploreData$Symptom_chest.discomfort = ifelse(c19exploreData$Symptom_chest.discomfort == 1, "yes", "no")
+c19exploreData$Symptom_flu.symptoms = ifelse(c19exploreData$Symptom_flu.symptoms == 1, "yes", "no")
+c19exploreData$Symptom_muscle.cramps = ifelse(c19exploreData$Symptom_muscle.cramps == 1, "yes", "no")
+c19exploreData$Symptom_reflux = ifelse(c19exploreData$Symptom_reflux == 1, "yes", "no")
+c19exploreData$Symptom_physical.discomfort = ifelse(c19exploreData$Symptom_physical.discomfort == 1, "yes", "no")
+c19exploreData$Symptom_itchy.throat = ifelse(c19exploreData$Symptom_itchy.throat == 1, "yes", "no")
+```
+
+<h5>a. Which variables are associated with “death”.</h5>
+<h5> Exploring Categorical Variables</h5>
+
+
+```{r}
+library(gmodels)
+library(ggplot2)
+attach(c19exploreData)
+CrossTable(x=country, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(country, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=gender, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(gender, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=If_onset_approximated, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(If_onset_approximated, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=visiting.Wuhan, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(visiting.Wuhan, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=from.Wuhan, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(from.Wuhan, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=recovered, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(recovered, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_none, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_none, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_fever..mild.to.sever., y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_fever..mild.to.sever., ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_coughing..mild.to.sever., y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_coughing..mild.to.sever., ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_difficulty.breathing, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_difficulty.breathing, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_chills, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_chills, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_joint.pain, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_joint.pain, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_throat.pain, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_throat.pain, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_nasal.discharge, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_nasal.discharge, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_fatigue, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_fatigue, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_abdominal.pain, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_abdominal.pain, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_diarrhea, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_diarrhea, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_cold, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_cold, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_pneumonia, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_pneumonia, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_vomiting, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_vomiting, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_loss.of.appetite , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_loss.of.appetite , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_malaise , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_malaise , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_headache , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_headache , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_sputum , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_sputum , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_myalgia, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_myalgia, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_sore.throat, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_sore.throat, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_dyspnea, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_dyspnea, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_nausea , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_nausea , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_respiratory.distress , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_respiratory.distress , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_throat.discomfort , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_throat.discomfort , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_sneeze , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_sneeze , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_chest.discomfort, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_chest.discomfort, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_thirst, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_thirst, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_flu.symptoms, y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_flu.symptoms, ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_muscle.cramps , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_muscle.cramps , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_reflux , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_reflux , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_physical.discomfort , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_physical.discomfort , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+
+CrossTable(x=Symptom_itchy.throat , y=survivalORnot, chisq = TRUE)
+ggplot(c19exploreData, aes(Symptom_itchy.throat , ..count..)) + geom_bar(aes(fill = survivalORnot), position = "dodge")
+```
+
+<h5>Exploring Numerical Variables </h5>
+```{r}
+t.test(c19exploreData$age ~ c19exploreData$survivalORnot,alternative="two.sided")
+plot(c19exploreData$age ~ c19exploreData$survivalORnot, col="darkblue")
+
+t.test(c19exploreData$symptomLength ~ c19exploreData$survivalORnot,alternative="two.sided")
+plot(c19exploreData$symptomLength ~ c19exploreData$survivalORnot, col="darkblue")
+
+t.test(c19exploreData$reportingLength ~ c19exploreData$survivalORnot,alternative="two.sided")
+plot(c19exploreData$reportingLength ~ c19exploreData$survivalORnot, col="darkblue")
+```
+
+```{r}
+plot(c19exploreData$survivalORnot, col="darkgreen")
+```
+
+<h1>4. Training and Evaluation of ML models	</h1>
+
+<h3>a. Data Scaling Training and Testing</h3>
+<h5>1. Use Caret’s “createDataPartition” method to partition the dataset into 80% for training and 20% for testing</h5>
+```{r}
+library(caret)
+train.index=createDataPartition(c19$death,p = 0.8, list = FALSE)
+c19_train=c19[train.index, ]
+c19_test <- c19[-train.index, ]
+```
+
+```{r}
+c19train_labels = ifelse(c19_train$death == 0, "death", "survived")
+c19train_labels = as.data.frame(c19train_labels)
+plot(c19train_labels, col="yellow")
+```
+
+
+```{r}
+library(DMwR)
+set.seed(1)
+c19_train$death = as.factor(c19_train$death)
+c19_train <- SMOTE(death ~ ., data  = c19_train)
+```
+
+```{r}
+smote_labels = ifelse(c19_train$death == 0, "death", "survived")
+smote_labels = as.data.frame(smote_labels)
+plot(smote_labels, col="green")
+```
+
+```{r}
+train_labels = c19_train$death
+test_labels = c19_test$death
+```
+
+```{r}
+algorithm = 0
+accuary = 0
+kappa = 0
+auc = 0
+fnr = 0
+AllData= cbind.data.frame(algorithm,accuary,kappa,auc,fnr)
+AllData = as.data.frame(AllData)
+```
+
+<h3>b.Regularized logistic regression</h3>
+
+<h4>Lasso</h4>
+<h5>1. set.seed(1) and train the model using 10 fold cross validation and tune lambda.  Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+c19_train$death = as.factor(c19_train$death)
+c19_test$death = as.factor(c19_test$death)
+```
+
+```{r}
+library(ROCR)
+set.seed(1)
+
+lasso <- train(
+  death ~., data = c19_train, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = expand.grid(alpha = 1, lambda = 10^seq(-3, 3, length = 100)))
+
+lasso_predictions=predict(lasso, c19_test)
+lassoCM = confusionMatrix(lasso_predictions,c19_test$death)
+lassoCM
+
+lasso_predictions_prob=predict(lasso, c19_test, type="prob")
+
+pred_m_lasso=prediction(lasso_predictions_prob$`1`,c19_test$death)
+lassoAUC = performance(pred_m_lasso, measure = "auc")@y.values
+```
+
+```{r}
+lassoFNR = lassoCM$table[2] / (lassoCM$table[2] + lassoCM$table[4])
+```
+
+```{r}
+lasso.add = c("lasso", lassoCM$overall["Accuracy"], lassoCM$overall["Kappa"], lassoAUC[1], lassoFNR)
+names(lasso.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(lasso.add)
+AllData = as.data.frame(AllData)
+```
+
+<h5>2. Did Lasso shrink any variables to 0? If so, report these variables.</h5>
+```{r}
+coef(lasso$finalModel, lasso$bestTune$lambda)
+```
+
+<h4>Ridge </h4>
+<h5>1. set.seed(1) and train the model using 10 fold cross validation and tune lambda. Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+set.seed(1)
+ridge <- train(
+  death~., data = c19_train, method = "glmnet",
+    trControl = trainControl("cv", number = 10),
+    tuneGrid = expand.grid(alpha = 0, lambda = 10^seq(-3, 3, length = 100)))
+
+ridge_predictions=predict(ridge, c19_test)
+ridgeCM = confusionMatrix(ridge_predictions,c19_test$death)
+ridgeCM
+
+ridge_predictions_prob=predict(ridge, c19_test, type="prob")
+
+pred_m_ridge=prediction(ridge_predictions_prob$`1`,c19_test$death)
+ridgeAUC = performance(pred_m_ridge, measure = "auc")@y.values
+```
+```{r}
+ridgeFNR = ridgeCM$table[2] / (ridgeCM$table[2] + ridgeCM$table[4])
+```
+
+```{r}
+ridge.add = c("ridge", ridgeCM$overall["Accuracy"], ridgeCM$overall["Kappa"], ridgeAUC[1], ridgeFNR)
+names(ridge.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, ridge.add)
+AllData = as.data.frame(AllData)
+```
+
+<h4>Elastic net </h4>
+<h5>1. set.seed(1) and train the model using 10 fold cross validation and tune lambda and alpha. Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+set.seed(1)
+enet <- train(
+     death ~., data = c19_train, method = "glmnet",
+     trControl = trainControl("cv", number = 10),
+     tuneGrid = expand.grid(alpha =seq(0,1, length=10), lambda = 10^seq(-3, 3, length = 100)))
+
+enet_predictions=predict(enet, c19_test)
+enetCM = confusionMatrix(enet_predictions,c19_test$death)
+enetCM
+
+enet_predictions_prob=predict(enet, c19_test, type="prob")
+
+pred_m_enet=prediction(enet_predictions_prob$`1`,c19_test$death)
+enetAUC = performance(pred_m_enet, measure = "auc")@y.values
+```
+
+```{r}
+enetFNR = enetCM$table[2] / (enetCM$table[2] + enetCM$table[4])
+```
+
+```{r}
+enet.add = c("enet", enetCM$overall["Accuracy"], enetCM$overall["Kappa"], enetAUC[1], enetFNR)
+names(enet.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, enet.add)
+AllData = as.data.frame(AllData)
+```
+
+<h3>c. Tree ensemble models<h3>
+
+<h4>Random Forest</h4>
+<h5>1. set.seed(1) and train the model on the training data to predict the death. Use 10-fold cross validation. Use the model to predict the Death for test data and Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+set.seed(1)
+
+ctrl <- trainControl(method = "cv", number = 10)
+m_rf <- train(death ~ ., data = c19_train, method = "rf", trControl = ctrl, importance=T)
+
+rf_predictions <- predict(m_rf,c19_test)
+rfCM = confusionMatrix(rf_predictions, c19_test$death)
+rfCM
+
+rf_predictions_prob=predict(m_rf, c19_test, type="prob")
+
+pred_m_rf=prediction(rf_predictions_prob$`1`,c19_test$death)
+rfAUC = performance(pred_m_rf, measure = "auc")@y.values
+```
+```{r}
+rfFNR = rfCM$table[2] / (rfCM$table[2] + rfCM$table[4])
+```
+
+```{r}
+rf.add = c("rf", rfCM$overall["Accuracy"], rfCM$overall["Kappa"], rfAUC[1],rfFNR)
+names(rf.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, rf.add)
+AllData = as.data.frame(AllData)
+```
+
+<h5>2. Compare the coefficients of LASSO and Random Forest model</h5>
+```{r}
+varImp(m_rf)
+```
+
+<h4>Gradient Boosted Tree Model</h4>
+<h5>1. set.seed(1) and train the model on the training data to predict the death. Use 10-fold cross validation. Use the model to predict the Death for test data and Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+set.seed(1)
+gbm <- train(
+    death ~., data = c19_train, method = "gbm",
+    trControl = trainControl("cv", number = 10)
+    ,preProc="nzv")
+
+gbm_predictions <- predict(gbm,c19_test)
+gbmCM = confusionMatrix(gbm_predictions, c19_test$death)
+gbmCM
+
+gbm_predictions_prob=predict(gbm, c19_test, type="prob")
+
+pred_m_gbm=prediction(gbm_predictions_prob$`1`,c19_test$death)
+gbmAUC = performance(pred_m_gbm, measure = "auc")@y.values
+```
+```{r}
+gbmFNR = gbmCM$table[2] / (gbmCM$table[2] + gbmCM$table[4])
+```
+
+```{r}
+gbm.add = c("gbm", gbmCM$overall["Accuracy"], gbmCM$overall["Kappa"], gbmAUC[1],gbmFNR)
+names(gbm.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, gbm.add)
+AllData = as.data.frame(AllData)
+```
+
+<h3>d. KNN</h3>
+<h5>1. set.seed(1) and train the model on the training data to predict the death. Use 10-fold cross validation. Use the model to predict the Death for test data and Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+set.seed(1)
+knn <- train(
+  death ~., data = c19_train, method = "knn",
+  trControl = trainControl("cv", number = 10),
+  preProcess = c("center","scale"),
+  tuneLength = 20
+  )
+
+plot(knn)
+
+knn_predictions <- predict(knn,c19_test)
+knnCM = confusionMatrix(knn_predictions, c19_test$death)
+knnCM
+
+knn_predictions_prob=predict(knn, c19_test, type="prob")
+
+pred_m_knn=prediction(knn_predictions_prob$`1`,c19_test$death)
+knnAUC = performance(pred_m_knn, measure = "auc")@y.values
+```
+```{r}
+knnFNR = knnCM$table[2] / (knnCM$table[2] + knnCM$table[4])
+```
+
+```{r}
+knn.add = c("knn", knnCM$overall["Accuracy"], knnCM$overall["Kappa"], knnAUC[1],knnFNR)
+names(knn.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, knn.add)
+AllData = as.data.frame(AllData)
+```
+
+<h4>e. Data Scaling Training and Validation</h4>
+
+<h5>1. Further divide the training and testing into 90% training and 10% validation.</h5>
+```{r}
+inTrain = createDataPartition(c19_train$death, p = 0.9, list = FALSE)
+SECc19_train = c19_train[inTrain,]
+c19_val = c19_train[-inTrain,]
+```
+
+```{r}
+SECc19_labels = SECc19_train$death
+val_labels = c19_val$death
+```
+
+<h5>2. Scale and encode the data other than the outcome variable </h5>
+```{r}
+SECc19_train$gender = as.numeric(SECc19_train$gender)
+SECc19_train$country = as.numeric(SECc19_train$country)
+c19_val$gender = as.numeric(c19_val$gender)
+c19_val$country = as.numeric(c19_val$country)
+
+numeric_attibutes= c("country","gender","age","symptomLength","reportingLength")
+
+c19_numeric=scale(SECc19_train[,c(1,2,3,8,9)])
+SECc19_train[numeric_attibutes] = scale(SECc19_train[,c(1,2,3,8,9)])
+
+col_means_train <- attr(c19_numeric, "scaled:center") 
+col_stddevs_train <- attr(c19_numeric, "scaled:scale")
+
+c19_val[numeric_attibutes] <- scale(c19_val[numeric_attibutes], center = col_means_train, scale = col_stddevs_train)
+```
+
+```{r}
+c19_train$gender = as.numeric(c19_train$gender)
+c19_train$country = as.numeric(c19_train$country)
+c19_test$gender = as.numeric(c19_test$gender)
+c19_test$country = as.numeric(c19_test$country)
+
+c19_numericTRAIN=scale(c19_train[,c(1,2,3,8,9)])
+c19_train[numeric_attibutes] = scale(c19_train[,c(1,2,3,8,9)])
+
+col_means_trainTRAIN <- attr(c19_numeric, "scaled:center") 
+col_stddevs_trainTRAIN <- attr(c19_numeric, "scaled:scale")
+
+c19_test[numeric_attibutes] <- scale(c19_test[numeric_attibutes], center = col_means_trainTRAIN, scale = col_stddevs_trainTRAIN)
+```
+
+```{r}
+SECc19_train = SECc19_train[-10]
+c19_val = c19_val[-10]
+c19_train = c19_train[-10]
+c19_test = c19_test[-10]
+```
+
+<h3>f. Neural networks</h3>
+```{r}
+set.seed(1)
+```
+
+```{r}
+SECc19_train = as.matrix(SECc19_train)
+c19_val = as.matrix(c19_val)
+val_labels = as.matrix(val_labels)
+SECc19_labels = as.matrix(SECc19_labels)
+test_labels = as.matrix(test_labels)
+train_labels = as.matrix(train_labels)
+c19_test = as.matrix(c19_test)
+c19_train = as.matrix(c19_train)
+```
+
+```{r}
+val_labels = as.numeric(val_labels)
+SECc19_labels = as.numeric(SECc19_labels)
+```
+
+```{r}
+val_labels = as.matrix(val_labels)
+SECc19_labels = as.matrix(SECc19_labels)
+```
+
+<h5>1. Create a Neural Network model with two hidden layers and two dropout layers  to predict death. Tune your hyper-parameters.</h5>
+```{r}
+library(tfruns)
+library(keras)
+library(tensorflow)
+runs <- tuning_run("c19.R", 
+                  flags = list(
+                  nodes1 = c(64, 128, 392),
+                  nodes2 = c(64, 128, 392),
+                  learning_rate = c(0.01, 0.05, 0.001, 0.0001),                 
+                  batch_size=c(100,200,500,1000),
+                  epochs=c(30,50,100),
+                  activation=c("relu","sigmoid","tanh"),
+                  dropout=c(0.1,0.5)
+                  ),
+                   sample = 0.02
+)
+```
+
+<h5>2. Use view_run to look at your best model. Report the best combination used. Did the model overfit?</h5>
+```{r}
+runs
+index = which.max(runs$metric_val_accuracy)
+view_run(runs$run_dir[index])
+```
+
+```{r}
+train_labels = as.numeric(train_labels)
+train_labels = as.matrix(train_labels)
+```
+
+```{r}
+set.seed(1)
+```
+
+
+<h5>3. Use the best combination of hyper-parameters to model the death for testing data and Compute the confusion matrix from each model and compute accuracy, AUC and if data is imbalance compute the kappa.</h5>
+```{r}
+library(tfruns)
+library(keras)
+library(tensorflow)
+model = keras_model_sequential() 
+model %>%
+  layer_dense(units = 392, activation = "relu", input_shape = dim(c19_train)[2]) %>%
+  layer_dropout(0.5) %>%
+  layer_dense(units = 392, activation = "relu") %>%
+  layer_dropout(0.5) %>%
+  layer_dense(units = 1)
+
+model %>% compile(
+  optimizer = optimizer_adam(lr=0.001), 
+  loss = 'binary_crossentropy',
+  metrics = c('accuracy'))
+
+history <- model %>% fit(
+              c19_train, 
+              train_labels,
+              epochs = 30 ,
+              batch_size= 500, 
+              validation_data=list(c19_test, test_labels))
+
+plot(history)
+model %>% evaluate(c19_test, test_labels)
+```
+
+```{r}
+ann_predictions=model %>% predict(c19_test)
+
+ann_pred <- ifelse(ann_predictions > 0.5, 1, 0)
+
+ann_pred = as.factor(ann_pred)
+test_labels = as.factor(test_labels)
+
+annCM = confusionMatrix(ann_pred, test_labels)
+annCM
+
+ann_predictions_prob=model %>% predict(c19_test, type="prob")
+ann_pred_prob = ifelse(ann_predictions_prob > 0.5, 1, 0)
+
+pred_m_ann=prediction(ann_pred_prob,test_labels)
+annAUC = performance(pred_m_ann, measure = "auc")@y.values
+```
+
+```{r}
+annFNR = annCM$table[2] / (annCM$table[2] + annCM$table[4])
+```
+
+```{r}
+ann.add = c("ann", annCM$overall["Accuracy"], annCM$overall["Kappa"], annAUC[1],annFNR)
+names(ann.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, ann.add)
+AllData = as.data.frame(AllData)
+```
+
+<h3>g. Anomaly Detection Methods</h3>
+<h4>1. One Class SVM </h4>
+```{r}
+svm_c19 = c19
+```
+
+```{r}
+svm_c19$gender = as.numeric(svm_c19$gender)
+svm_c19$country = as.numeric(svm_c19$country)
+
+SVMnumeric_attibutes= c("country","gender","age","symptomLength","reportingLength")
+
+c19_numeric=scale(svm_c19[,c(1,2,3,8,9)])
+svm_c19[SVMnumeric_attibutes] = scale(svm_c19[,c(1,2,3,8,9)])
+```
+
+```{r}
+library(e1071)
+set.seed(1)
+svm_c19$SurvivalClass[svm_c19$death == 0] <- "TRUE"
+svm_c19$SurvivalClass[svm_c19$death != 1] <- "FALSE"
+
+svm_c19$SurvivalClass = ifelse(svm_c19$SurvivalClass == FALSE, TRUE, FALSE)
+svm_c19$SurvivalClass[is.na(svm_c19$SurvivalClass)] <- FALSE
+
+trainPositive<-subset(svm_c19,SurvivalClass=="TRUE")
+testnegative<-subset(svm_c19,SurvivalClass=="FALSE")
+inTrain<-createDataPartition(1:nrow(trainPositive),p=0.9,list=FALSE)
+
+trainpredictors<-trainPositive[inTrain,-43]
+trainLabels<-trainPositive[inTrain,43]
+
+testPositive<-trainPositive[-inTrain,]
+testPosNeg<-rbind(testPositive,testnegative)
+
+testpredictors<-testPosNeg[,-43]
+testLabels<-testPosNeg[,43]
+
+trainpredictors <- trainpredictors[-10]
+testpredictors <- testpredictors[-10]
+
+svm_model<-svm(trainpredictors,y=NULL,
+           type='one-classification',
+           nu=0.10,
+           scale=TRUE,
+           kernel="radial")
+
+svm_predictions=predict(svm_model, testpredictors)
+svm_predictions = as.factor(svm_predictions)
+testLabels = as.factor(testLabels)
+
+svmCM = confusionMatrix(svm_predictions,testLabels)
+svmCM
+
+svm_predictions_prob=predict(svm_model, testpredictors, type="prob")
+
+svm_predictions_prob = ifelse(svm_predictions_prob == TRUE, 1, 0)
+svm_predictions_prob = as.factor(svm_predictions_prob)
+svm_predictions_prob = as.numeric(svm_predictions_prob)
+
+pred_m_svm=prediction(svm_predictions_prob,testLabels)
+svmAUC = performance(pred_m_svm, measure = "auc")@y.values
+```
+
+```{r}
+svmFNR = svmCM$table[2] / (svmCM$table[2] + svmCM$table[4])
+```
+
+```{r}
+svm.add = c("svm", svmCM$overall["Accuracy"], svmCM$overall["Kappa"], svmAUC[1],svmFNR)
+names(svm.add) = c("algorithm","accuary","kappa","auc","fnr")
+AllData = rbind(AllData, svm.add)
+AllData = as.data.frame(AllData)
+```
+
+<h4>2. Isolation Forest </h4>
+
+```{r}
+library(solitude)
+set.seed(1)
+
+c19_test = as.data.frame(c19_test)
+c19_train = as.data.frame(c19_train)
+test_labels = as.data.frame(test_labels)
+
+test_labelsWORDS = ifelse(test_labels$test_labels == 1, "death", "survival")
+test_labelsWORDS = as.data.frame(test_labelsWORDS)
+
+isf = isolationForest$new()  
+isf$mtry <- 5 
+isf$fit(c19_train)  
+isf$scores                  
+
+isf_pred = isf$predict(c19_test)
+isf_pred = cbind(isf_pred,test_labelsWORDS)
+plot(isf_pred$anomaly_score~isf_pred$test_labelsWORDS,col="darkorange")
+t.test(isf_pred$anomaly_score~isf_pred$test_labelsWORDS)
+```
+
+<h3>h. Data Comparison </h3>
+<h5>1. Compare the accuary of all models. Which model gave the best accuracy and which model gave the worst?</h5>
+```{r}
+AllData = as.data.frame(lapply(AllData,unlist))
+```
+
+```{r}
+ggplot(data=AllData, aes(x=algorithm, y=accuary, group=1)) +
+  geom_line(color="red")+
+  geom_point()
+
+ggplot(data=AllData, aes(x=algorithm, y=kappa, group=1)) +
+  geom_line(color="orange")+
+  geom_point()
+
+ggplot(data=AllData, aes(x=algorithm, y=auc, group=1)) +
+  geom_line(color="blue")+
+  geom_point()
+
+ggplot(data=AllData, aes(x=algorithm, y=fnr, group=1)) +
+  geom_line(color="green")+
+  geom_point()
+```
